@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Secrets & Credentials
+.env
+*.key
+*.pem
+
+# QMC Agent Specific
+browser_state.json
+logs/
+reportes/
+debug/
+qmc_tasks_*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo

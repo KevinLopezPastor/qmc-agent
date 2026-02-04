@@ -1,0 +1,48 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ffcc00', 'edgeLabelBackground':'#ffffff', 'tertiaryColor': '#fff'}}}%%
+graph TD
+    classDef python fill:#4B8BBE,stroke:#333,stroke-width:2px,color:white;
+    classDef script fill:#FFE873,stroke:#333,stroke-width:2px,color:black;
+    classDef state fill:#f9f,stroke:#333,stroke-width:2px,color:black;
+
+    subgraph "Main Process"
+        Start((🚀 START)) --> MainAgent["src/main_agent.py"]:::python
+        MainAgent -->|Compile| Graph["src/graph.py"]:::python
+        Graph -->|Init| State["QMCState"]:::state
+    end
+
+    subgraph "LangGraph Workflow"
+        direction TB
+        State --> LoginAgent["🔐 Login Agent<br/>(src/nodes/login_node_sync.py)"]:::python
+        
+        LoginAgent -->|Subprocess| LoginScript
+        
+        LoginAgent -- Success --> ExtractorAgent["🕷️ Extractor Agent<br/>(src/nodes/extractor.py)"]:::python
+        LoginAgent -- Fail --> ErrorHandler["❌ Error Handler"]:::python
+
+        ExtractorAgent -->|Subprocess| ExtractScript
+        
+        ExtractorAgent -- Data JSON --> AnalystAgent["🧠 Analyst Agent<br/>(src/nodes/analyst_llm.py)"]:::python
+        ExtractorAgent -- Fail --> ErrorHandler
+
+        AnalystAgent -->|LangChain| LLM["🤖 Groq / LLaMA 3"]
+        LLM -->|Status JSON| AnalystAgent
+        
+        AnalystAgent --> ReporterAgent["🎨 Reporter Agent<br/>(src/nodes/reporter.py)"]:::python
+        
+        ReporterAgent -->|Subprocess| ReportScript
+        
+        ReporterAgent --> End((🏁 END))
+        ErrorHandler --> End
+    end
+
+    subgraph "Subprocesses"
+        direction TB
+        LoginScript("src/scripts/login_script.py"):::script
+        ExtractScript("src/scripts/extract_script_v2.py"):::script
+        ReportScript("src/scripts/report_script.py"):::script
+    end
+
+    %% Data Flow
+    LoginScript -.->|Cookies| LoginAgent
+    ExtractScript -.->|Raw Data| ExtractorAgent
+    ReportScript -.->|PNG Info| ReporterAgent
