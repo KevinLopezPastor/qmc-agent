@@ -25,7 +25,7 @@ class Config:
     # Scraping Configuration
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     HEADLESS: bool = os.getenv("HEADLESS", "true").lower() == "true"
-    TIMEOUT_MS: int = int(os.getenv("TIMEOUT_MS", "60000")) # Increased timeout
+    TIMEOUT_MS: int = int(os.getenv("TIMEOUT_MS", "60000"))
     
     # Search/Pagination
     PAGINATION_MAX_CLICKS: int = int(os.getenv("PAGINATION_MAX_CLICKS", "10"))
@@ -36,11 +36,11 @@ class Config:
         "FE_HITOS_DIARIO": "Hitos",
         "FE_COBRANZAS_DIARIA": "Cobranzas",
         "FE_PASIVOS": "Pasivos", 
-        "FE_PRODUCCION": "Produccion",
-        "FE_CALIDADCARTERA_DIARIO": "Calidad Cartera"
+        "FE_PRODUCCION": "Reporte de Producción",
+        "FE_CALIDADCARTERA_DIARIO": "Calidad de Cartera"
     }
 
-    # CSS Selectors
+    # CSS Selectors (QMC)
     SELECTORS = {
         # Login
         "username_input": "input[type='text'], input[name='username'], #username",
@@ -61,6 +61,42 @@ class Config:
         "table_rows": "tbody tr, .lui-list-item, .qmc-row"
     }
     
+    # ==================== NPrinting Configuration ====================
+    
+    # NPrinting Connection
+    NPRINTING_URL: str = os.getenv("NPRINTING_URL", "https://10.142.16.45:4993/#/tasks/executions")
+    NPRINTING_EMAIL: str = os.getenv("NPRINTING_EMAIL", "")
+    NPRINTING_PASSWORD: str = os.getenv("NPRINTING_PASSWORD", "")
+    
+    # NPrinting Process Monitoring (prefix patterns)
+    # Format: prefix_pattern: alias
+    NPRINTING_MONITORED = {
+        "h.": "Hitos",                     # e.g., h. Tablero Eficiencia Comercial
+        "q1.": "Calidad de Cartera",       # e.g., q1. Reporte Calidad
+        "k.": "Reporte de Producción",     # e.g., k. Reporte Produccion
+        "x.": "Cobranzas",                 # e.g., x.Cobranza Diaria
+    }
+    
+    # NPrinting CSS Selectors
+    NPRINTING_SELECTORS = {
+        # Login
+        "email_input": "input[type='email'], input[name='email'], input[placeholder*='mail']",
+        "password_input": "input[type='password']",
+        "login_button": "button[type='submit'], button:has-text('Log in'), button:has-text('Sign in')",
+        
+        # Date Filter
+        "date_filter_dropdown": "select, .dropdown, [role='listbox'], .filter-dropdown",
+        "today_option": "option:has-text('Today'), [role='option']:has-text('Today'), li:has-text('Today')",
+        
+        # Pagination
+        "pagination_100": "button:has-text('100'), .pagination button:has-text('100'), [aria-label='100']",
+        
+        # Table
+        "table": "table, .data-table, [role='grid']",
+        "table_rows": "tbody tr, .task-row, [role='row']",
+        "table_headers": "thead th, .header-cell, [role='columnheader']"
+    }
+    
     @classmethod
     def validate(cls) -> list[str]:
         """Validate required configuration files."""
@@ -71,4 +107,14 @@ class Config:
             missing.append("QMC_PASSWORD")
         if not cls.GROQ_API_KEY:
             missing.append("GROQ_API_KEY")
+        return missing
+    
+    @classmethod
+    def validate_nprinting(cls) -> list[str]:
+        """Validate NPrinting configuration."""
+        missing = []
+        if not cls.NPRINTING_EMAIL:
+            missing.append("NPRINTING_EMAIL")
+        if not cls.NPRINTING_PASSWORD:
+            missing.append("NPRINTING_PASSWORD")
         return missing

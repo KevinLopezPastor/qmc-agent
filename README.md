@@ -1,122 +1,272 @@
 # QMC Agent - AI Powered Qlik Reporting System
 
-The **QMC Agent** is an autonomous multi-agent system designed to monitor, extract, analyze, and report on Qlik Management Console (QMC) tasks. It utilizes Large Language Models (LLaMA 3 via Groq) to intelligently interpret task statuses and generate visual executive reports.
+<div align="center">
 
-## 🧠 System Architecture
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)
+![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-green)
+![Playwright](https://img.shields.io/badge/Playwright-Automation-orange?logo=playwright)
+![Groq](https://img.shields.io/badge/Groq-LLaMA%203-purple)
 
-The system operates using a **Multi-Agent Architecture** orchestrated by [LangGraph](https://langchain-ai.github.io/langgraph/). It treats the process as a state machine where data flows between specialized agents.
+**Sistema autónomo de múltiples agentes para monitorear, extraer, analizar y reportar tareas de QMC y NPrinting**
 
-### The Agentic Workflow (V2.1)
+</div>
 
-#### 1. Visual Flow (Mermaid)
-![QMC Agent Workflow](qmc_graph.png)
+---
 
-#### 2. Textual Flow (ASCII)
-For environments where the graph above doesn't render:
-```text
-[START] 
-   ⬇
-[🔐 Login Agent] --(Fail)--> [❌ Error Handler] ➡ [END]
-   ⬇ (Success)
-[🕷️ Extractor Agent] --(Fail)--> [❌ Error Handler]
-   ⬇ (Data)
-[🧠 Analyst Agent]
-   ⬇ (Semantic Report)
-[🎨 Reporter Agent]
-   ⬇
- [END]
+## 🎯 Descripción
+
+El **QMC Agent** es un sistema multi-agente que monitorea automáticamente:
+
+- **QMC (Qlik Management Console)**: Extrae y analiza tareas de recarga
+- **NPrinting**: Extrae y analiza tareas de publicación de reportes
+
+Utiliza **LLaMA 3 (via Groq)** para interpretar los estados de las tareas y genera reportes visuales ejecutivos en formato PNG.
+
+---
+
+## 🧠 Arquitectura del Sistema
+
+El sistema utiliza una **Arquitectura Multi-Agente** orquestada por [LangGraph](https://langchain-ai.github.io/langgraph/) con ejecución paralela.
+
+### Diagrama de Flujo Principal
+
+![Diagrama de Flujo](images/qmc_diagrama_estado.png)
+
+### Diagrama de Componentes
+
+![Diagrama de Componentes](images/qmc_diagrama_componentes.png)
+
+### Diagrama de Secuencia
+
+![Diagrama de Secuencia](images/qmc_diagrama_secuencia.png)
+
+---
+
+## ⚡ Flujo de Ejecución
+
+```
+                    ┌─────────────────────────────────────┐
+                    │              START                   │
+                    └─────────────────┬───────────────────┘
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              │                                               │
+    ┌─────────▼─────────┐                         ┌──────────▼──────────┐
+    │   🔐 QMC Login    │                         │  🔐 NPrinting Login │
+    └─────────┬─────────┘                         └──────────┬──────────┘
+              │                                               │
+    ┌─────────▼─────────┐                         ┌──────────▼──────────┐
+    │  📥 QMC Extractor │                         │ 📥 NPrinting Extract│
+    │  (Playwright)     │                         │ (Today + Paginate)  │
+    └─────────┬─────────┘                         └──────────┬──────────┘
+              │                                               │
+    ┌─────────▼─────────┐                         ┌──────────▼──────────┐
+    │  🤖 QMC Analyst   │                         │ 🤖 NPrinting Analyst│
+    │  (Groq LLM)       │                         │ (Groq LLM)          │
+    └─────────┬─────────┘                         └──────────┬──────────┘
+              │                                               │
+              └───────────────────────┬───────────────────────┘
+                                      │
+                          ┌───────────▼───────────┐
+                          │    🔄 Sync Node       │
+                          └───────────┬───────────┘
+                                      │
+                          ┌───────────▼───────────┐
+                          │ 🧠 Combined Analyst   │
+                          └───────────┬───────────┘
+                                      │
+                          ┌───────────▼───────────┐
+                          │   📊 Reporter Node    │
+                          │   (Generate PNG)      │
+                          └───────────┬───────────┘
+                                      │
+                          ┌───────────▼───────────┐
+                          │          END          │
+                          └───────────────────────┘
 ```
 
 ---
 
-## 🤖 The Agents (Nodes)
+## 🤖 Los Agentes (Nodes)
 
-Each component in the system is designed as an independent agent with a specific responsibility.
-
-| Agent | Responsibility | Implementation | Output |
-| :--- | :--- | :--- | :--- |
-| **Login Agent** | Security & Access Protocol. Handles authentication cookies and session management. | `src/nodes/login_node_sync.py` | Valid Session Cookies |
-| **Extractor Agent** | Navigation & Scouting. Filters the QMC "Task View", applies date filters (Today), and scrapes raw table data. | `src/nodes/extractor.py` | Raw Task Data (JSON) |
-| **Analyst Agent** | Intelligence Layer. Uses **LLaMA 3** to interpret raw statuses into a simplified 4-State Logic (`Success`, `Running`, `Failed`, `Pending`). | `src/nodes/analyst_llm.py` | Semantic Status Report |
-| **Reporter Agent** | Visual Communication. Generates a pixel-perfect PNG report using PIL based on the Analyst's findings. | `src/nodes/reporter.py` | PNG Image Path |
+| Agent | Responsabilidad | Archivo | Output |
+|:------|:----------------|:--------|:-------|
+| **QMC Login** | Autenticación en QMC Console | `nodes/qmc/login_node_sync.py` | Session Cookies |
+| **QMC Extractor** | Navega y extrae tareas de QMC | `nodes/qmc/extractor.py` | Raw Task Data |
+| **QMC Analyst** | Analiza estados con LLaMA 3 | `nodes/qmc/analyst_llm.py` | Process Reports |
+| **NPrinting Login** | Autenticación en NPrinting | `nodes/nprinting/login_node.py` | NPrinting Cookies |
+| **NPrinting Extractor** | Filtra "Today" y pagina | `nodes/nprinting/extractor.py` | NPrinting Data |
+| **NPrinting Analyst** | Analiza por prefijo (h., q1., k., x.) | `nodes/nprinting/analyst.py` | NPrinting Reports |
+| **Combined Analyst** | Combina reportes QMC + NPrinting | `nodes/combined_analyst.py` | Overall Status |
+| **Reporter** | Genera reporte visual PNG | `nodes/reporter.py` | PNG Image |
 
 ---
 
-## 📂 Project Structure
+## 📊 Procesos Monitoreados
 
-The project has been refactored for clarity and scalability.
+![Procesos Monitoreados](images/qmc_procesos_monitoreados.png)
+
+### QMC Console
+| Proceso | Descripción |
+|:--------|:------------|
+| `FE_HITOS_DIARIO` | Hitos diarios |
+| `FE_COBRANZAS_DIARIA` | Cobranzas diarias |
+| `FE_PASIVOS` | Pasivos |
+| `FE_PRODUCCION` | Producción |
+| `FE_CALIDADCARTERA_DIARIO` | Calidad de cartera |
+
+### NPrinting
+| Alias | Prefijo | Descripción |
+|:------|:--------|:------------|
+| Hitos | `h.` | Reportes de hitos |
+| Calidad de Cartera | `q1.` | Reportes de calidad de cartera |
+| Reporte de Producción | `k.` | Reportes de producción |
+| Cobranzas | `x.` | Reportes de cobranzas |
+
+---
+
+## 📂 Estructura del Proyecto
+
+![Estructura de Datos](images/qmc_estructura_datos.png)
 
 ```
-qmc_agent/
+qmc-agent/
 ├── src/
-│   ├── main.py             # 🚀 Entry Point (Linear Mode - Stable/Native)
-│   ├── main_agent.py       # 🤖 Entry Point (Agent Mode - Experimental/LangGraph)
-│   ├── graph.py            # 🗺️ Architecture Definition (The "Map")
-│   ├── state.py            # 📦 Shared State Schema (The "Memory")
-│   ├── config.py           # ⚙️ Configuration & Secrets
-│   ├── playwright_runner.py# 🌉 Subprocess Bridge (Fixes Asyncio conflicts)
+│   ├── main_agent.py          # 🚀 Entry Point (Multi-Agent Mode)
+│   ├── graph.py               # 🗺️ Definición del grafo LangGraph
+│   ├── state.py               # 📦 Schema del estado compartido
+│   ├── config.py              # ⚙️ Configuración y secretos
+│   ├── playwright_runner.py   # 🌉 Bridge para subprocesos Playwright
 │   │
-│   ├── nodes/              # The "Brain" of each Agent
-│   │   ├── login_node_sync.py
-│   │   ├── extractor.py
-│   │   ├── analyst_llm.py
+│   ├── nodes/                 # 🧠 Cerebro de cada agente
+│   │   ├── qmc/
+│   │   │   ├── login_node_sync.py
+│   │   │   ├── extractor.py
+│   │   │   └── analyst_llm.py
+│   │   ├── nprinting/
+│   │   │   ├── login_node.py
+│   │   │   ├── extractor.py
+│   │   │   └── analyst.py
+│   │   ├── combined_analyst.py
 │   │   └── reporter.py
 │   │
-│   ├── scripts/            # The "Hands" (Execution Logic)
-│   │   ├── login_script.py
-│   │   ├── extract_script_v2.py
-│   │   └── report_script.py
-│   │
-│   └── legacy/             # 🏛️ Archived files (Do not use)
+│   └── scripts/               # 🤖 Lógica de ejecución Playwright
+│       ├── qmc/
+│       │   ├── login_script.py
+│       │   └── extract_script.py
+│       └── nprinting/
+│           ├── login_script.py
+│           └── extract_script.py
 │
-├── logs/                   # 📝 Execution Logs
-├── reportes/               # 📊 Generated PNG Reports
-├── .env                    # 🔑 Secrets (Credentials, API Keys)
-└── requirements.txt        # 📦 Dependencies
+├── docs/                      # 📖 Documentación
+│   └── architecture.md        # Diagramas Mermaid
+├── images/                    # 🖼️ Imágenes de arquitectura
+├── logs/                      # 📝 Logs de ejecución
+├── reportes/                  # 📊 Reportes PNG generados
+├── .env                       # 🔑 Variables de entorno
+└── requirements.txt           # 📦 Dependencias
 ```
 
 ---
 
-## 🚦 Execution Modes
+## 📊 Lógica de Estados (Analyst)
 
-The system supports two execution paradigms depending on your needs.
+El Analyst Agent aplica una jerarquía estricta para determinar el estado:
 
-### 1. Agentic Mode (Recommended for Future)
-Uses the LangGraph architecture. Ideal for adding complexity, human-in-the-loop, or conditional logic later.
+| Prioridad | Estado | Condición |
+|:---------:|:------:|:----------|
+| 1 | 🔴 **FAILED** | Si *alguna* tarea falló |
+| 2 | 🟠 **RUNNING** | Si no hay fallos pero hay tareas ejecutándose |
+| 3 | ⚪ **PENDING** | Si no hay fallos/running pero hay tareas en cola |
+| 4 | 🟢 **SUCCESS** | Si *todas* las tareas completaron exitosamente |
+| 5 | ⚫ **NO RUN** | Si no hay ejecuciones registradas para hoy |
+
+---
+
+## 🛠️ Instalación
+
+### 1. Clonar el repositorio
+```bash
+git clone <repository-url>
+cd qmc-agent
+```
+
+### 2. Crear entorno virtual
+```bash
+python -m venv venv
+.\venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/Mac
+```
+
+### 3. Instalar dependencias
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 4. Configurar variables de entorno
+Crear archivo `.env`:
+```env
+# QMC Configuration
+QMC_URL=https://your-qmc-server/qmc
+QMC_USERNAME=your_username
+QMC_PASSWORD=your_password
+
+# NPrinting Configuration
+NPRINTING_URL=https://your-nprinting-server:4993
+NPRINTING_EMAIL=your_email
+NPRINTING_PASSWORD=your_password
+
+# LLM Configuration
+GROQ_API_KEY=your_groq_api_key
+
+# Browser Configuration
+HEADLESS=True
+TIMEOUT_MS=60000
+```
+
+---
+
+## 🚀 Ejecución
+
+### Modo Multi-Agente (Recomendado)
 ```bash
 python src/main_agent.py
 ```
 
-### 2. Linear Mode (Production Stable)
-A sequential execution script. Simpler, faster for debugging basic flows, and robust for simple cron jobs.
-```bash
-python src/main.py
+**Output esperado:**
+```
+🚀 Starting Unified Multi-Agent Workflow (QMC + NPrinting)
+📅 Execution Time: 2026-02-05 10:00:00
+▶️ Invoking Unified Graph (QMC + NPrinting in parallel)...
+   [NPrinting Login] Authentication successful!
+   [QMC Login] Authentication successful!
+   [QMC Extractor] Extracted 125 tasks
+   [NPrinting Extractor] Extracted 193 tasks (Filter: True)
+   [QMC Analyst] Analyzing 5 processes...
+   [NPrinting Analyst] Analyzing 4 process groups...
+   [Combined Analyst] Overall Status: Success
+   [Reporter] Report saved to: reportes/05_02_2026/unified_report.png
+🏁 Workflow Completed Successfully
 ```
 
 ---
 
-## 📊 Status Logic (Analyst)
+## 📋 Dependencias Principales
 
-The Analyst Agent enforces a strict hierarchy to determine the status of a Process Group (e.g., "FE_HITOS").
+| Paquete | Versión | Uso |
+|:--------|:--------|:----|
+| `langgraph` | ^0.3 | Orquestación de agentes |
+| `langchain-groq` | ^0.3 | Integración con LLaMA 3 |
+| `playwright` | ^1.49 | Automatización de browser |
+| `pillow` | ^11.0 | Generación de reportes PNG |
+| `python-dotenv` | ^1.0 | Manejo de variables de entorno |
 
-1.  🔴 **FAILED** (Highest Priority): If *ANY* task failed.
-2.  🟠 **RUNNING**: If *NO* failures, but *ANY* task is currently running.
-3.  ⚪ **PENDING**: If *NO* failures/running, but tasks are queued/waiting.
-4.  🔵 **SUCCESS**: If and only if *ALL* tasks completed successfully.
 
 ---
 
-## 🛠️ Setup
+<div align="center">
 
-1.  **Environment Variables**: Ensure `.env` is configured.
-    ```env
-    QMC_URL=...
-    QMC_USERNAME=...
-    QMC_PASSWORD=...
-    GROQ_API_KEY=...
-    HEADLESS=True
-    ```
-2.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+**Desarrollado por Kevin Lopez para Efectiva**
+
+</div>

@@ -1,6 +1,6 @@
 """
 QMC Agent - Analyst LLM Node
-Uses Groq (LLaMA 3) to analyze process groups dynamically.
+Uses Groq (LLaMA 3) to analyze QMC process groups dynamically.
 """
 
 from typing import List, Dict
@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from src.config import Config
 from src.state import QMCState
+
 
 def analyze_group(process_name: str, tasks: List[Dict], llm) -> Dict:
     """
@@ -26,8 +27,7 @@ def analyze_group(process_name: str, tasks: List[Dict], llm) -> Dict:
     # CRITICAL: Filter out Disabled tasks as they do not affect process status.
     simplified_tasks = []
     for t in tasks:
-        # Check Enabled status (Default to Yes if missing to be safe, or check data source)
-        # In QMC, it's typically "Yes" or "No".
+        # Check Enabled status (Default to Yes if missing to be safe)
         if t.get("Enabled") != "Yes":
            continue
            
@@ -35,7 +35,6 @@ def analyze_group(process_name: str, tasks: List[Dict], llm) -> Dict:
             "Name": t.get("Name"),
             "Status": t.get("Status"),
             "Last execution": t.get("Last execution")
-            # We don't need to send "Enabled" since we pre-filtered
         })
         
     if not simplified_tasks:
@@ -93,14 +92,15 @@ def analyze_group(process_name: str, tasks: List[Dict], llm) -> Dict:
             "summary": f"LLM Analysis failed: {str(e)}"
         }
 
+
 async def analyst_llm_node(state: QMCState) -> dict:
     """
-    Analyst Node:
+    QMC Analyst Node:
     - Partitions data by TAGS/Process.
     - Calls LLM for each monitored process.
     - Aggregates results.
     """
-    print("   [Analyst] Starting LLM Analysis...")
+    print("   [QMC Analyst] Starting LLM Analysis...")
     
     # 1. Initialize LLM
     llm = ChatGroq(
@@ -109,30 +109,20 @@ async def analyst_llm_node(state: QMCState) -> dict:
         api_key=Config.GROQ_API_KEY
     )
     
-    all_tasks = state.get("structured_data", [])
+    all_tasks = state.get("structured_data") or []
     if not all_tasks:
-        return {"current_step": "done", "logs": ["No data to analyze"]}
+        return {"process_reports": {}, "logs": ["QMC: No data to analyze"]}
     
-    # 2. Partition Data
-    # Config.MONITORED_PROCESSES = {"FE_HITOS": "Hitos", ...}
+    # 2. Partition Data by Tags
     monitored_tags = Config.MONITORED_PROCESSES
     partitions = {tag: [] for tag in monitored_tags}
     
-    # Also keep track of 'Unknown' if needed, but for now focus on targets
     for task in all_tasks:
         task_tags_str = task.get("Tags", "")
-        # Handle if tags is list or str
-        # task_tags_str might be "FE_HITOS_DIARIO" or ["FE_HITOS_DIARIO"]
         
-        # Normalize to string for searching
-        found = False
         for mon_key in monitored_tags:
             if mon_key in str(task_tags_str):
                 partitions[mon_key].append(task)
-                found = True
-                # A task might belong to multiple? Usually one primary process.
-                # We stop at first match for simplicity or allow multiple?
-                # Let's allow multiple just in case.
                 
     # 3. Analyze Each Partition
     final_report = {}
@@ -150,11 +140,7 @@ async def analyst_llm_node(state: QMCState) -> dict:
         final_report[tag] = analysis
         print(f"       Result: {analysis.get('status')} - {analysis.get('summary')}")
         
-    # 4. Save Final Report to State
-    # We might want to save this as a JSON file too
-    
     return {
-        "current_step": "report",
         "process_reports": final_report,
-        "logs": [f"Analyzed {len(partitions)} process groups"]
+        "logs": [f"QMC: Analyzed {len(partitions)} process groups"]
     }

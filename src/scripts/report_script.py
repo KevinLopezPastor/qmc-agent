@@ -1,6 +1,6 @@
 """
-QMC Agent - Visual Report Generator (PIL Version)
-Generates a PNG status report using native Python imaging (Lightweight, No Playwright).
+QMC Agent - Visual Report Generator (Unified Version)
+Generates a PNG status report for QMC + NPrinting data.
 """
 
 import sys
@@ -9,8 +9,10 @@ import os
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
-# 1. Configuration
-PROCESS_ALIAS = {
+# ============ Configuration ============
+
+# QMC Process Aliases
+QMC_ALIAS = {
     "FE_HITOS": "Hitos",
     "FE_HITOS_DIARIO": "Hitos",
     "FE_COBRANZAS": "Cobranzas", 
@@ -22,169 +24,242 @@ PROCESS_ALIAS = {
     "FE_INTERFACES_DIARIA": "Interfaces"
 }
 
+# NPrinting uses aliases directly from config (h. -> Hitos, etc.)
+
 STATUS_MAP = {
     "Success": {"text": "Procesado", "color": "#002060"},     # Blue
     "Running": {"text": "En proceso", "color": "#e46c0a"},    # Orange
     "Failed": {"text": "Fallido", "color": "red"},            # Red
     "Pending": {"text": "Pendiente", "color": "#7f7f7f"},     # Grey
-    "No Run": {"text": "Pendiente", "color": "#7f7f7f"}       # Fallback
+    "No Run": {"text": "Sin datos", "color": "#7f7f7f"},      # Grey
+    "No Data": {"text": "Sin datos", "color": "#7f7f7f"},     # Grey
+    "Mixed": {"text": "Mixto", "color": "#9b59b6"},           # Purple
+    "Error": {"text": "Error", "color": "red"}                # Red
 }
 
 # Layout Config
-WIDTH = 500
-HEADER_HEIGHT = 40
-ROW_HEIGHT = 30
-PADDING = 20
+WIDTH = 600
+HEADER_HEIGHT = 50
+SECTION_HEADER_HEIGHT = 30
+ROW_HEIGHT = 28
+PADDING = 15
+COL1_WIDTH = 280  # Process name column
+COL2_WIDTH = 100  # QMC status
+COL3_WIDTH = 100  # NPrinting status
 
 # Colors
-BG_COLOR = "white"
-TABLE_HEADER_BG = "#4f81bd"
+BG_COLOR = "#f5f5f5"
+TABLE_HEADER_BG = "#2c3e50"
+SECTION_BG = "#34495e"
 TABLE_HEADER_TEXT = "white"
-BORDER_COLOR = "#95b3d7"
-TEXT_COLOR = "black"
+BORDER_COLOR = "#bdc3c7"
+TEXT_COLOR = "#2c3e50"
+OVERALL_SUCCESS_BG = "#27ae60"
+OVERALL_FAILED_BG = "#e74c3c"
+OVERALL_RUNNING_BG = "#f39c12"
+OVERALL_PENDING_BG = "#95a5a6"
 
-def load_font(size):
+
+def load_font(size, bold=False):
     """Load a nice font, fallback to default."""
-    try:
-        # Try common Windows fonts
-        return ImageFont.truetype("arial.ttf", size)
-    except:
+    fonts_to_try = [
+        "arialbd.ttf" if bold else "arial.ttf",
+        "seguiemj.ttf",
+        "calibri.ttf"
+    ]
+    for font_name in fonts_to_try:
         try:
-            return ImageFont.truetype("seguiemj.ttf", size)
+            return ImageFont.truetype(font_name, size)
         except:
-            # Fallback to default (ugly but works)
-            return ImageFont.load_default()
+            continue
+    return ImageFont.load_default()
+
+
+def get_status_display(status_key):
+    """Get display text and color for status."""
+    config = STATUS_MAP.get(status_key, STATUS_MAP.get("No Data"))
+    return config["text"], config["color"]
+
 
 def run(args):
-    reports = args.get("reports", {})
-    output_path = args.get("output_path", "qmc_report_pil.png")
+    """Generate unified report image."""
+    qmc_reports = args.get("qmc_reports") or args.get("reports") or {}
+    nprinting_reports = args.get("nprinting_reports") or {}
+    combined_report = args.get("combined_report") or {}
+    output_path = args.get("output_path", "unified_report.png")
     
     # Dates
     now = datetime.now()
     yesterday = now - timedelta(days=1)
-    months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", 
+              "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     date_str = f"{yesterday.day}.{months[yesterday.month - 1]}"
     time_str = now.strftime("%I:%M%p").lower()
     
-    # 1. Prepare Data Rows (Sorted)
-    priority_order = [
-         "FE_INTERFACES_DIARIA", "FE_HITOS_DIARIO", "FE_CALIDADCARTERA_DIARIO", 
-         "FE_PRODUCCION", "FE_PASIVOS", "FE_COBRANZAS_DIARIA"
-    ]
+    # Prepare unified rows
+    # Merge QMC and NPrinting by common process names
+    process_names = set()
     
-    final_rows = []
-    processed_keys = set()
+    # Collect all process names
+    for key, val in qmc_reports.items():
+        alias = QMC_ALIAS.get(key, val.get("alias", key))
+        process_names.add(alias)
     
-    # Process Priority Items
-    for key in priority_order:
-        match_key = None
-        if key in reports:
-            match_key = key
-        else:
-             for rk in reports.keys():
-                 if rk in key or key in rk:
-                     match_key = rk
-                     break
+    for key, val in nprinting_reports.items():
+        # NPrinting uses alias directly as key (Hitos, Cobranzas, etc.)
+        process_names.add(key)
+    
+    # Priority order for display
+    priority = ["Hitos", "Calidad Cartera", "Produccion", "Pasivos", "Cobranzas", "Interfaces"]
+    sorted_names = []
+    for p in priority:
+        if p in process_names:
+            sorted_names.append(p)
+            process_names.discard(p)
+    sorted_names.extend(sorted(process_names))
+    
+    # Build rows: (name, qmc_status, nprinting_status)
+    rows = []
+    for name in sorted_names:
+        qmc_status = "No Data"
+        nprinting_status = "No Data"
         
-        if match_key and match_key not in processed_keys:
-             status_key = reports[match_key].get("status", "No Run")
-             name_display = PROCESS_ALIAS.get(key, key) # Use config alias
-             final_rows.append((name_display, status_key))
-             processed_keys.add(match_key)
-             
-    # Add Remaining
-    for key, data in reports.items():
-        if key not in processed_keys:
-             status_key = data.get("status", "No Run")
-             name_display = PROCESS_ALIAS.get(key, key)
-             final_rows.append((name_display, status_key))
+        # Find QMC status
+        for key, val in qmc_reports.items():
+            alias = QMC_ALIAS.get(key, val.get("alias", key))
+            if alias == name:
+                qmc_status = val.get("status", "No Data")
+                break
+        
+        # Find NPrinting status
+        if name in nprinting_reports:
+            nprinting_status = nprinting_reports[name].get("status", "No Data")
+        
+        rows.append((name, qmc_status, nprinting_status))
     
-    # 2. Calculate Image Dimensions
-    num_rows = len(final_rows)
-    # Header + Table Header + Rows + Padding
-    total_height = HEADER_HEIGHT + ROW_HEIGHT + (num_rows * ROW_HEIGHT) + (PADDING * 2)
+    # Calculate dimensions
+    num_rows = len(rows)
+    total_height = (
+        PADDING +                      # Top padding
+        HEADER_HEIGHT +                # Main header
+        SECTION_HEADER_HEIGHT +        # Overall status
+        SECTION_HEADER_HEIGHT +        # Table header
+        (num_rows * ROW_HEIGHT) +      # Data rows
+        PADDING                        # Bottom padding
+    )
     
-    # 3. Draw Image
+    # Create image
     img = Image.new('RGB', (WIDTH, total_height), color=BG_COLOR)
     d = ImageDraw.Draw(img)
     
     # Fonts
-    font_bold = load_font(16)
-    font_normal = load_font(14)
-    # Hack for bold if strictly loading default? No, just use same logic.
-    # For default font, size is ignored.
+    font_title = load_font(18, bold=True)
+    font_header = load_font(14, bold=True)
+    font_normal = load_font(12)
+    font_status = load_font(11, bold=True)
     
-    # Draw Top Header (Date/Time)
-    # "Carga al : [date]" ------ "Corte: [time]"
-    d.text((PADDING, PADDING), f"Carga al: {date_str}", font=font_bold, fill="black")
+    y = PADDING
     
-    # Calculate right alignment for time
-    # Check text width
-    if hasattr(d, 'textbbox'): # Newer Pillow
-        bbox = d.textbbox((0, 0), f"Corte: {time_str}", font=font_bold)
-        text_w = bbox[2] - bbox[0]
+    # ========== Header ==========
+    d.text((PADDING, y + 5), f"📊 Reporte Unificado - {date_str}", font=font_title, fill=TEXT_COLOR)
+    
+    # Time on right
+    time_text = f"Corte: {time_str}"
+    if hasattr(d, 'textbbox'):
+        tw = d.textbbox((0, 0), time_text, font=font_normal)[2]
     else:
-        text_w = d.textlength(f"Corte: {time_str}", font=font_bold)
+        tw = d.textlength(time_text, font=font_normal)
+    d.text((WIDTH - PADDING - tw, y + 8), time_text, font=font_normal, fill=TEXT_COLOR)
+    
+    y += HEADER_HEIGHT
+    
+    # ========== Overall Status Bar ==========
+    overall_status = combined_report.get("overall_status", "No Data")
+    status_text, _ = get_status_display(overall_status)
+    
+    # Choose background color based on status
+    if overall_status == "Success":
+        bar_bg = OVERALL_SUCCESS_BG
+    elif overall_status == "Failed":
+        bar_bg = OVERALL_FAILED_BG
+    elif overall_status == "Running":
+        bar_bg = OVERALL_RUNNING_BG
+    else:
+        bar_bg = OVERALL_PENDING_BG
+    
+    d.rectangle([PADDING, y, WIDTH - PADDING, y + SECTION_HEADER_HEIGHT], fill=bar_bg)
+    overall_label = f"Estado General: {status_text.upper()}"
+    d.text((PADDING + 10, y + 6), overall_label, font=font_header, fill="white")
+    
+    y += SECTION_HEADER_HEIGHT + 5
+    
+    # ========== Table Header ==========
+    d.rectangle([PADDING, y, WIDTH - PADDING, y + SECTION_HEADER_HEIGHT], fill=TABLE_HEADER_BG)
+    
+    # Column headers
+    col1_x = PADDING + 10
+    col2_x = PADDING + COL1_WIDTH
+    col3_x = col2_x + COL2_WIDTH
+    
+    d.text((col1_x, y + 7), "Proceso", font=font_header, fill=TABLE_HEADER_TEXT)
+    d.text((col2_x + 15, y + 7), "QMC", font=font_header, fill=TABLE_HEADER_TEXT)
+    d.text((col3_x + 10, y + 7), "NPrinting", font=font_header, fill=TABLE_HEADER_TEXT)
+    
+    y += SECTION_HEADER_HEIGHT
+    
+    # ========== Data Rows ==========
+    for i, (name, qmc_status, np_status) in enumerate(rows):
+        # Alternating row background
+        row_bg = "white" if i % 2 == 0 else "#ecf0f1"
+        d.rectangle([PADDING, y, WIDTH - PADDING, y + ROW_HEIGHT], fill=row_bg)
         
-    d.text((WIDTH - PADDING - text_w, PADDING), f"Corte: {time_str}", font=font_bold, fill="black")
-    
-    # Draw Table Header
-    table_start_y = PADDING + HEADER_HEIGHT
-    # Header Row Box
-    d.rectangle([PADDING, table_start_y, WIDTH - PADDING, table_start_y + ROW_HEIGHT], fill=TABLE_HEADER_BG)
-    
-    # Header Text
-    d.text((PADDING + 5, table_start_y + 5), "Tareas", font=font_bold, fill=TABLE_HEADER_TEXT)
-    # Center "QS"
-    col2_x = WIDTH // 2 + 50 # Approximate start of col 2
-    d.text((col2_x, table_start_y + 5), "QS", font=font_bold, fill=TABLE_HEADER_TEXT)
-    
-    # Draw Rows
-    y = table_start_y + ROW_HEIGHT
-    
-    for process_name, status_key in final_rows:
-        # Row Box (Border only)
-        # d.rectangle([PADDING, y, WIDTH - PADDING, y + ROW_HEIGHT], outline=BORDER_COLOR)
-        
-        # We draw borders manually for cleaner look
-        # Bottom Line
+        # Draw borders
         d.line([(PADDING, y + ROW_HEIGHT), (WIDTH - PADDING, y + ROW_HEIGHT)], fill=BORDER_COLOR)
-        # Vertical Line Middle
-        # d.line([(col2_x - 10, y), (col2_x - 10, y + ROW_HEIGHT)], fill=BORDER_COLOR)
-        # Left/Right Borders
-        d.line([(PADDING, y), (PADDING, y + ROW_HEIGHT)], fill=BORDER_COLOR)
-        d.line([(WIDTH - PADDING, y), (WIDTH - PADDING, y + ROW_HEIGHT)], fill=BORDER_COLOR)
+        d.line([(col2_x, y), (col2_x, y + ROW_HEIGHT)], fill=BORDER_COLOR)
+        d.line([(col3_x, y), (col3_x, y + ROW_HEIGHT)], fill=BORDER_COLOR)
         
-        # Text Col 1 (Name)
-        d.text((PADDING + 5, y + 5), process_name, font=font_normal, fill="black")
+        # Process name
+        d.text((col1_x, y + 6), name, font=font_normal, fill=TEXT_COLOR)
         
-        # Text Col 2 (Status)
-        st_config = STATUS_MAP.get(status_key, STATUS_MAP["Failed"])
-        st_text = st_config["text"]
-        st_color = st_config["color"]
+        # QMC Status
+        qmc_text, qmc_color = get_status_display(qmc_status)
+        d.text((col2_x + 10, y + 6), qmc_text, font=font_status, fill=qmc_color)
         
-        # Center align status text roughly
-        # d.text((col2_x, y + 5), st_text, font=font_bold, fill=st_color)
-        
-        # Improve centering if possible
-        if hasattr(d, 'textbbox'):
-             st_w = d.textbbox((0,0), st_text, font=font_bold)[2]
-        else:
-             st_w = d.textlength(st_text, font=font_bold)
-             
-        # Center of remaining space? Let's just indent fixed
-        d.text((col2_x, y + 5), st_text, font=font_bold, fill=st_color)
+        # NPrinting Status
+        np_text, np_color = get_status_display(np_status)
+        d.text((col3_x + 10, y + 6), np_text, font=font_status, fill=np_color)
         
         y += ROW_HEIGHT
-        
+    
+    # Draw outer border
+    d.rectangle([PADDING, PADDING + HEADER_HEIGHT, WIDTH - PADDING, y], outline=BORDER_COLOR, width=1)
+    
+    # Save
     img.save(output_path)
     return {"success": True, "output_path": output_path}
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         # Test mode
         print("Running test mode...")
-        res = run({"reports": {"FE_HITOS": {"status": "Success"}, "FE_TEST": {"status": "Running"}}})
+        test_args = {
+            "qmc_reports": {
+                "FE_HITOS_DIARIO": {"status": "Success"},
+                "FE_COBRANZAS_DIARIA": {"status": "Running"},
+                "FE_PASIVOS": {"status": "Failed"}
+            },
+            "nprinting_reports": {
+                "Hitos": {"status": "Success"},
+                "Cobranzas": {"status": "Pending"},
+                "Calidad Cartera": {"status": "Running"}
+            },
+            "combined_report": {
+                "overall_status": "Failed"
+            },
+            "output_path": "test_unified_report.png"
+        }
+        res = run(test_args)
         print(res)
     else:
         try:

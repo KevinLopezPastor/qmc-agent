@@ -41,7 +41,7 @@ def run_playwright_script(script_name: str, args: dict) -> dict:
             [sys.executable, str(script_path), args_json],
             capture_output=True,
             text=True,
-            timeout=120,  # 2 minute timeout
+            timeout=300,  # 5 minute timeout for NPrinting pagination
             cwd=str(Path(__file__).parent.parent)  # Run from project root
         )
         
