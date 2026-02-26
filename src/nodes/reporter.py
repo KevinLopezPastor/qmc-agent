@@ -3,10 +3,13 @@ QMC Agent - Reporter Node
 Orchestrates the generation of unified visual reports.
 """
 
+import logging
 from src.playwright_runner import run_playwright_script
 from src.state import QMCState
 import os
 from datetime import datetime
+
+logger = logging.getLogger("Reporter")
 
 
 def reporter_node(state: QMCState) -> dict:
@@ -14,18 +17,16 @@ def reporter_node(state: QMCState) -> dict:
     Reporter Node:
     - Takes analyzed reports from QMC, NPrinting, and Combined analysis.
     - Generates unified visual PNG report.
+    - Always generates a report (even if empty → shows Pending).
     """
-    print("   [Reporter] Generating Unified Visual Report...")
+    logger.info("Generating Unified Visual Report...")
     
     qmc_reports = state.get("process_reports") or {}
     nprinting_reports = state.get("nprinting_reports") or {}
     combined_report = state.get("combined_report") or {}
     
-    if not qmc_reports and not nprinting_reports:
-        return {
-            "current_step": "done",
-            "logs": ["No reports available to visualize."]
-        }
+    # NOTE: No early return — always generate report
+    # Empty data = show all configured processes as "Pending"
     
     # Generate filename with timestamp
     now = datetime.now()
@@ -51,7 +52,7 @@ def reporter_node(state: QMCState) -> dict:
     result = run_playwright_script("report_script.py", args)
     
     if result.get("success"):
-        print(f"   [Reporter] Unified report saved to: {output_path}")
+        logger.info(f"Unified report saved to: {output_path}")
         return {
             "current_step": "done",
             "report_image_path": output_path,
@@ -59,7 +60,7 @@ def reporter_node(state: QMCState) -> dict:
         }
     else:
         err = result.get("error", "Unknown Error")
-        print(f"   [Reporter] Failed: {err}")
+        logger.error(f"Report generation failed: {err}")
         return {
             "current_step": "error",
             "error_message": f"Report generation failed: {err}",

@@ -36,7 +36,7 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
-            context = browser.new_context()
+            context = browser.new_context(ignore_https_errors=True)
             page = context.new_page()
             
             try:

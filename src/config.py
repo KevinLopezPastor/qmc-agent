@@ -20,7 +20,7 @@ class Config:
     
     # Groq LLM
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile" 
     
     # Scraping Configuration
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))

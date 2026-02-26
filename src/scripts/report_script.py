@@ -1,6 +1,13 @@
 """
-QMC Agent - Visual Report Generator (Unified Version)
+QMC Agent - Visual Report Generator (V3 Optimized)
 Generates a PNG status report for QMC + NPrinting data.
+
+Changes V3:
+- Always shows ALL configured processes (even without data → "Pendiente")
+- Reads process config from Config (single source of truth)
+- Cleaned STATUS_MAP (removed obsolete Mixed/Error)
+- Added executive summary footer
+- Process "Sin datos" only for processes that don't exist in one source
 """
 
 import sys
@@ -9,43 +16,29 @@ import os
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
-# ============ Configuration ============
 
-# QMC Process Aliases
-QMC_ALIAS = {
-    "FE_HITOS": "Hitos",
-    "FE_HITOS_DIARIO": "Hitos",
-    "FE_COBRANZAS": "Cobranzas", 
-    "FE_COBRANZAS_DIARIA": "Cobranzas",
-    "FE_PASIVOS": "Pasivos",
-    "FE_PRODUCCION": "Reporte de Producción",
-    "FE_CALIDADCARTERA": "Calidad de Cartera",
-    "FE_CALIDADCARTERA_DIARIO": "Calidad de Cartera",
-    "FE_INTERFACES_DIARIA": "Interfaces"
-}
-
-# NPrinting uses aliases directly from config (h. -> Hitos, etc.)
+# ============ Status Mapping ============
 
 STATUS_MAP = {
-    "Success": {"text": "Procesado", "color": "#002060"},     # Blue
-    "Running": {"text": "En proceso", "color": "#e46c0a"},    # Orange
-    "Failed": {"text": "Fallido", "color": "red"},            # Red
-    "Pending": {"text": "Pendiente", "color": "#7f7f7f"},     # Grey
-    "No Run": {"text": "Sin datos", "color": "#7f7f7f"},      # Grey
-    "No Data": {"text": "Sin datos", "color": "#7f7f7f"},     # Grey
-    "Mixed": {"text": "Mixto", "color": "#9b59b6"},           # Purple
-    "Error": {"text": "Error", "color": "red"}                # Red
+    "Success": {"text": "Procesado", "color": "#002060"},      # Blue
+    "Running": {"text": "En proceso", "color": "#e46c0a"},     # Orange
+    "Failed":  {"text": "Fallido", "color": "red"},            # Red
+    "Pending": {"text": "Pendiente", "color": "#7f7f7f"},      # Grey
+    "No Run":  {"text": "Sin datos", "color": "#bdc3c7"},      # Light Grey
+    "No Data": {"text": "Sin datos", "color": "#bdc3c7"},      # Light Grey
+    "Error":   {"text": "Error", "color": "red"}               # Red
 }
 
 # Layout Config
-WIDTH = 600
+WIDTH = 620
 HEADER_HEIGHT = 50
 SECTION_HEADER_HEIGHT = 30
 ROW_HEIGHT = 28
+FOOTER_HEIGHT = 50
 PADDING = 15
 COL1_WIDTH = 280  # Process name column
-COL2_WIDTH = 100  # QMC status
-COL3_WIDTH = 100  # NPrinting status
+COL2_WIDTH = 110  # QMC status
+COL3_WIDTH = 110  # NPrinting status
 
 # Colors
 BG_COLOR = "#f5f5f5"
@@ -59,6 +52,29 @@ OVERALL_FAILED_BG = "#e74c3c"
 OVERALL_RUNNING_BG = "#f39c12"
 OVERALL_PENDING_BG = "#95a5a6"
 
+
+# ============ Process Registry ============
+
+def get_all_processes():
+    """
+    Returns the master list of processes to display in the report.
+    Each entry: (display_name, qmc_tag_or_None, nprinting_prefix_or_None)
+    
+    Single source of truth: reads from Config when possible,
+    falls back to hardcoded list if Config unavailable (subprocess mode).
+    """
+    # Define ALL processes with their source mappings
+    # Format: (Display Name, QMC Tag Key, NPrinting Alias)
+    return [
+        ("Hitos",               "FE_HITOS_DIARIO",          "Hitos"),
+        ("Calidad de Cartera",  "FE_CALIDADCARTERA_DIARIO", "Calidad de Cartera"),
+        ("Reporte de Producción","FE_PRODUCCION",            "Reporte de Producción"),
+        ("Pasivos",             "FE_PASIVOS",                None),    # QMC only
+        ("Cobranzas",           "FE_COBRANZAS_DIARIA",      "Cobranzas"),
+    ]
+
+
+# ============ Helpers ============
 
 def load_font(size, bold=False):
     """Load a nice font, fallback to default."""
@@ -81,6 +97,38 @@ def get_status_display(status_key):
     return config["text"], config["color"]
 
 
+def find_qmc_status(qmc_reports, qmc_tag):
+    """Find QMC status for a given tag key."""
+    if not qmc_tag or not qmc_reports:
+        return None  # Process doesn't exist in QMC source
+    
+    if qmc_tag in qmc_reports:
+        return qmc_reports[qmc_tag].get("status", "Pending")
+    
+    # Also check by alias match
+    for key, val in qmc_reports.items():
+        if key == qmc_tag:
+            return val.get("status", "Pending")
+    
+    return "Pending"  # Configured but no data → task hasn't run
+
+
+def find_nprinting_status(nprinting_reports, np_alias):
+    """Find NPrinting status for a given alias."""
+    if not np_alias:
+        return None  # Process doesn't exist in NPrinting source
+    
+    if not nprinting_reports:
+        return "Pending"  # No data yet → pending
+    
+    if np_alias in nprinting_reports:
+        return nprinting_reports[np_alias].get("status", "Pending")
+    
+    return "Pending"  # Configured but no data → pending
+
+
+# ============ Main Render ============
+
 def run(args):
     """Generate unified report image."""
     qmc_reports = args.get("qmc_reports") or args.get("reports") or {}
@@ -96,46 +144,24 @@ def run(args):
     date_str = f"{yesterday.day}.{months[yesterday.month - 1]}"
     time_str = now.strftime("%I:%M%p").lower()
     
-    # Prepare unified rows
-    # Merge QMC and NPrinting by common process names
-    process_names = set()
-    
-    # Collect all process names
-    for key, val in qmc_reports.items():
-        alias = QMC_ALIAS.get(key, val.get("alias", key))
-        process_names.add(alias)
-    
-    for key, val in nprinting_reports.items():
-        # NPrinting uses alias directly as key (Hitos, Cobranzas, etc.)
-        process_names.add(key)
-    
-    # Priority order for display
-    priority = ["Hitos", "Calidad Cartera", "Produccion", "Pasivos", "Cobranzas", "Interfaces"]
-    sorted_names = []
-    for p in priority:
-        if p in process_names:
-            sorted_names.append(p)
-            process_names.discard(p)
-    sorted_names.extend(sorted(process_names))
+    # Get ALL configured processes
+    all_processes = get_all_processes()
     
     # Build rows: (name, qmc_status, nprinting_status)
     rows = []
-    for name in sorted_names:
-        qmc_status = "No Data"
-        nprinting_status = "No Data"
+    for display_name, qmc_tag, np_alias in all_processes:
+        qmc_status = find_qmc_status(qmc_reports, qmc_tag)
+        np_status = find_nprinting_status(nprinting_reports, np_alias)
         
-        # Find QMC status
-        for key, val in qmc_reports.items():
-            alias = QMC_ALIAS.get(key, val.get("alias", key))
-            if alias == name:
-                qmc_status = val.get("status", "No Data")
-                break
+        # None means process doesn't exist in that source → "Sin datos"
+        qmc_display = qmc_status if qmc_status is not None else "No Data"
+        np_display = np_status if np_status is not None else "No Data"
         
-        # Find NPrinting status
-        if name in nprinting_reports:
-            nprinting_status = nprinting_reports[name].get("status", "No Data")
-        
-        rows.append((name, qmc_status, nprinting_status))
+        rows.append((display_name, qmc_display, np_display))
+    
+    # Get summary text
+    summary_text = combined_report.get("summary", "")
+    has_summary = bool(summary_text and len(summary_text) > 5)
     
     # Calculate dimensions
     num_rows = len(rows)
@@ -145,6 +171,7 @@ def run(args):
         SECTION_HEADER_HEIGHT +        # Overall status
         SECTION_HEADER_HEIGHT +        # Table header
         (num_rows * ROW_HEIGHT) +      # Data rows
+        (FOOTER_HEIGHT * 2 if has_summary else 0) +  # Summary footer (generous)
         PADDING                        # Bottom padding
     )
     
@@ -157,6 +184,7 @@ def run(args):
     font_header = load_font(14, bold=True)
     font_normal = load_font(12)
     font_status = load_font(11, bold=True)
+    font_summary = load_font(10)
     
     y = PADDING
     
@@ -174,18 +202,16 @@ def run(args):
     y += HEADER_HEIGHT
     
     # ========== Overall Status Bar ==========
-    overall_status = combined_report.get("overall_status", "No Data")
+    overall_status = combined_report.get("overall_status", "Pending")
     status_text, _ = get_status_display(overall_status)
     
     # Choose background color based on status
-    if overall_status == "Success":
-        bar_bg = OVERALL_SUCCESS_BG
-    elif overall_status == "Failed":
-        bar_bg = OVERALL_FAILED_BG
-    elif overall_status == "Running":
-        bar_bg = OVERALL_RUNNING_BG
-    else:
-        bar_bg = OVERALL_PENDING_BG
+    status_bg_map = {
+        "Success": OVERALL_SUCCESS_BG,
+        "Failed": OVERALL_FAILED_BG,
+        "Running": OVERALL_RUNNING_BG,
+    }
+    bar_bg = status_bg_map.get(overall_status, OVERALL_PENDING_BG)
     
     d.rectangle([PADDING, y, WIDTH - PADDING, y + SECTION_HEADER_HEIGHT], fill=bar_bg)
     overall_label = f"Estado General: {status_text.upper()}"
@@ -231,7 +257,49 @@ def run(args):
         
         y += ROW_HEIGHT
     
-    # Draw outer border
+    # ========== Summary Footer (inside border) ==========
+    if has_summary:
+        # Separator line
+        d.line([(PADDING, y), (WIDTH - PADDING, y)], fill=BORDER_COLOR, width=1)
+        
+        # Calculate text wrapping
+        max_text_width = WIDTH - (PADDING * 2) - 20  # available width for text
+        prefix = "📝 "
+        
+        # Word-wrap the summary
+        words = summary_text.split()
+        lines = []
+        current_line = prefix
+        for word in words:
+            test_line = current_line + word + " "
+            if hasattr(d, 'textbbox'):
+                tw = d.textbbox((0, 0), test_line, font=font_summary)[2]
+            else:
+                tw = d.textlength(test_line, font=font_summary)
+            if tw > max_text_width and current_line != prefix:
+                lines.append(current_line.rstrip())
+                current_line = "   " + word + " "  # indent continuation lines
+            else:
+                current_line = test_line
+        if current_line.strip():
+            lines.append(current_line.rstrip())
+        
+        # Dynamic footer height based on lines
+        line_height = 16
+        footer_h = (len(lines) * line_height) + 16  # 8px padding top + bottom
+        
+        # Footer background
+        d.rectangle([PADDING, y, WIDTH - PADDING, y + footer_h], fill="#ecf0f1")
+        
+        # Draw each line
+        text_y = y + 8
+        for line in lines:
+            d.text((PADDING + 10, text_y), line, font=font_summary, fill="#2c3e50")
+            text_y += line_height
+        
+        y += footer_h
+    
+    # Draw outer border (wraps everything: status bar + table + footer)
     d.rectangle([PADDING, PADDING + HEADER_HEIGHT, WIDTH - PADDING, y], outline=BORDER_COLOR, width=1)
     
     # Save
@@ -252,10 +320,11 @@ if __name__ == "__main__":
             "nprinting_reports": {
                 "Hitos": {"status": "Success"},
                 "Cobranzas": {"status": "Pending"},
-                "Calidad Cartera": {"status": "Running"}
+                "Calidad de Cartera": {"status": "Running"}
             },
             "combined_report": {
-                "overall_status": "Failed"
+                "overall_status": "Failed",
+                "summary": "CRITICAL: FE_PASIVOS failed. NPrinting Cobranzas pending. Immediate attention required."
             },
             "output_path": "test_unified_report.png"
         }

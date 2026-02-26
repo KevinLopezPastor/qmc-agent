@@ -157,9 +157,9 @@ def run(playwright, args):
     
     # Context (Session Reuse)
     if browser_state_path and os.path.exists(browser_state_path):
-        context = browser.new_context(storage_state=browser_state_path)
+        context = browser.new_context(storage_state=browser_state_path, ignore_https_errors=True)
     else:
-        context = browser.new_context()
+        context = browser.new_context(ignore_https_errors=True)
         
     page = context.new_page()
     
